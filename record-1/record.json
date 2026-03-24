@@ -1,0 +1,80 @@
+{
+  "appToken": "K0PLbQJQlaVK8ms61GScmm1cn8b",
+  "tableId": "tbl0QtVWHwdeeXTt",
+  "recordId": "recventEteA6t3",
+  "sharedUrl": "https://xskydata.feishu.cn/record/VJUarQQF5elW53cL34jcx77rnSR",
+  "fromCache": true,
+  "createdTime": null,
+  "lastModifiedTime": null,
+  "createdBy": null,
+  "lastModifiedBy": null,
+  "fields": {
+    "✅  期望结果": [
+      {
+        "text": "参考",
+        "type": "text"
+      },
+      {
+        "link": "https://xskydata.feishu.cn/wiki/V2zHwNA6RixwXBkmJfwcCraZnIf",
+        "mentionType": "Wiki",
+        "realMentionType": "Docx",
+        "text": "MeshFS 基础资源一期 操作表单限制与校验",
+        "token": "V2zHwNA6RixwXBkmJfwcCraZnIf",
+        "type": "mention"
+      },
+      {
+        "text": "",
+        "type": "text"
+      }
+    ],
+    "❌  问题描述": [
+      {
+        "text": "IP 没有重复校验",
+        "type": "text"
+      }
+    ],
+    "优先级": "Highest",
+    "修复负责人": [
+      {
+        "email": "liu.zhen@xsky.com",
+        "en_name": "刘圳",
+        "id": "ou_84f18cc292e570dd3eb0dd3cf53e430c",
+        "name": "刘圳"
+      }
+    ],
+    "创建人": [
+      {
+        "email": "lin.yongjun@xsky.com",
+        "en_name": "林永钧",
+        "id": "ou_bb090a2b4ce839981525266dfaf944d4",
+        "name": "林永钧"
+      }
+    ],
+    "涉及位置": [
+      {
+        "text": "创建 NFS 共享",
+        "type": "text"
+      }
+    ],
+    "父记录": {},
+    "环境截图": [
+      {
+        "file_token": "EMh7bvMx6oMLDpxx91tcAYYDncp",
+        "name": "image.png",
+        "size": 110548,
+        "tmp_url": "https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url?file_tokens=EMh7bvMx6oMLDpxx91tcAYYDncp",
+        "type": "image/png",
+        "url": "https://open.feishu.cn/open-apis/drive/v1/medias/EMh7bvMx6oMLDpxx91tcAYYDncp/download"
+      }
+    ]
+  },
+  "attachments": [
+    {
+      "fieldName": "环境截图",
+      "fileToken": "EMh7bvMx6oMLDpxx91tcAYYDncp",
+      "fileName": "image.png",
+      "relativePath": "files/环境截图-1-image.png",
+      "contentType": "image/png"
+    }
+  ]
+}

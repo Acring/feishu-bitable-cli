@@ -5,11 +5,15 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { program } from 'commander';
 import pkg from '../package.json';
+import { findCachedRecordId, saveRecordLocators } from '../src/cache';
 import {
+  batchGetAllRecords,
+  downloadMedia,
   resolveAccessToken,
   resolveAppTokenFromWiki,
   searchAllRecords,
 } from '../src/feishu';
+import { parseRecordUrl } from '../src/record-url';
 import { parseTableUrl } from '../src/table-url';
 
 interface RecordsCommandOptions {
@@ -22,6 +26,42 @@ interface RecordsCommandOptions {
   sort?: string;
   automaticFields?: boolean;
   output?: string;
+}
+
+interface RecordCommandOptions {
+  accessToken?: string;
+  userIdType: string;
+  automaticFields?: boolean;
+  output?: string;
+}
+
+interface AttachmentCandidate {
+  fieldName: string;
+  fileToken: string;
+  fileName?: string;
+  contentType?: string;
+}
+
+interface SavedAttachment {
+  fieldName: string;
+  fileToken: string;
+  fileName: string;
+  relativePath: string;
+  contentType?: string;
+}
+
+interface CompactRecordOutput {
+  appToken: string;
+  tableId: string;
+  recordId: string;
+  sharedUrl: string | null;
+  fromCache: boolean;
+  createdTime: unknown;
+  lastModifiedTime: unknown;
+  createdBy: unknown;
+  lastModifiedBy: unknown;
+  fields: Record<string, unknown>;
+  attachments?: SavedAttachment[];
 }
 
 dotenv.config({ quiet: true });
@@ -60,7 +100,7 @@ program
     '多维表格 URL，例如 https://xxx.feishu.cn/wiki/...?...',
   )
   .option('--access-token <token>', '飞书 access token')
-  .option('--page-size <number>', '每页数量，最大 500', '500')
+  .option('--page-size <number>', '每页数量，最大 500', '20')
   .option('--field-names <names>', '返回字段名，使用逗号分隔')
   .option('--user-id-type <type>', '用户 ID 类型', 'open_id')
   .option('--view-id <viewId>', '覆盖 URL 中的 view_id')
@@ -115,6 +155,153 @@ program
     console.log(output);
   });
 
+program
+  .command('record')
+  .description('通过 table URL 和 record URL 查询单条记录详情并输出 JSON')
+  .argument(
+    '<table-url>',
+    '多维表格 URL，例如 https://xxx.feishu.cn/wiki/...?...',
+  )
+  .argument(
+    '<record-url>',
+    '记录分享 URL，例如 https://xxx.feishu.cn/record/xxxxxxxx',
+  )
+  .option('--access-token <token>', '飞书 access token')
+  .option('--user-id-type <type>', '用户 ID 类型', 'open_id')
+  .option('--automatic-fields', '包含系统自动字段')
+  .option('--output <dir>', '创建输出目录，保存 record.json 和附件文件')
+  .action(
+    async (
+      tableUrl: string,
+      recordUrl: string,
+      options: RecordCommandOptions,
+    ) => {
+      const parsedTableUrl = parseTableUrl(tableUrl);
+      const parsedRecordUrl = parseRecordUrl(recordUrl);
+      const accessToken = await resolveAccessToken(options.accessToken);
+      const appToken =
+        parsedTableUrl.source.kind === 'base'
+          ? parsedTableUrl.source.appToken
+          : await resolveAppTokenFromWiki(
+              parsedTableUrl.source.wikiToken,
+              accessToken,
+            );
+
+      let cachedRecordId = await findCachedRecordId(
+        appToken,
+        parsedTableUrl.tableId,
+        parsedRecordUrl.normalizedUrl,
+      );
+      let fromCache = Boolean(cachedRecordId);
+      let detailResponse =
+        cachedRecordId === undefined
+          ? undefined
+          : await batchGetAllRecords(
+              {
+                appToken,
+                tableId: parsedTableUrl.tableId,
+                recordIds: [cachedRecordId],
+                userIdType: options.userIdType,
+                automaticFields: options.automaticFields,
+              },
+              accessToken,
+            );
+
+      let matchedRecord =
+        detailResponse?.records.find(
+          (record) => hasMatchingShareToken(record.shared_url, parsedRecordUrl.shareToken),
+        ) ?? undefined;
+
+      if (!matchedRecord) {
+        const searchResult = await searchAllRecords(
+          {
+            appToken,
+            tableId: parsedTableUrl.tableId,
+            pageSize: 500,
+            userIdType: options.userIdType,
+          },
+          accessToken,
+        );
+        const recordIds = searchResult.items
+          .map(extractRecordId)
+          .filter((recordId): recordId is string => recordId !== undefined);
+
+        detailResponse = await batchGetAllRecords(
+          {
+            appToken,
+            tableId: parsedTableUrl.tableId,
+            recordIds,
+            userIdType: options.userIdType,
+            automaticFields: options.automaticFields,
+          },
+          accessToken,
+        );
+
+        await saveRecordLocators(
+          appToken,
+          parsedTableUrl.tableId,
+          detailResponse.records,
+        );
+
+        cachedRecordId = await findCachedRecordId(
+          appToken,
+          parsedTableUrl.tableId,
+          parsedRecordUrl.normalizedUrl,
+        );
+        fromCache = false;
+        matchedRecord =
+          detailResponse.records.find(
+            (record) => hasMatchingShareToken(record.shared_url, parsedRecordUrl.shareToken),
+          ) ?? undefined;
+      }
+
+      if (!matchedRecord) {
+        throw new Error(
+          `未找到匹配的记录: ${parsedRecordUrl.normalizedUrl}（table_id=${parsedTableUrl.tableId}）`,
+        );
+      }
+
+      const attachments = extractAttachmentCandidates(matchedRecord);
+      const compactOutput = buildCompactRecordOutput({
+        appToken,
+        tableId: parsedTableUrl.tableId,
+        fromCache,
+        record: matchedRecord,
+      });
+
+      if (options.output) {
+        const outputDir = path.resolve(options.output);
+        await mkdir(outputDir, { recursive: true });
+        const savedAttachments = await downloadAttachments(
+          attachments,
+          outputDir,
+          accessToken,
+        );
+        const outputPath = path.join(outputDir, 'record.json');
+        const output = JSON.stringify(
+          {
+            ...compactOutput,
+            attachments: savedAttachments,
+          },
+          null,
+          2,
+        );
+        await writeFile(outputPath, `${output}\n`, 'utf8');
+        console.error(`结果已写入 ${outputPath}`);
+        console.error(`附件已保存到 ${path.join(outputDir, 'files')}`);
+        return;
+      }
+
+      const output = JSON.stringify(
+        compactOutput,
+        null,
+        2,
+      );
+
+      console.log(output);
+    },
+  );
+
 program.parseAsync().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(message);
@@ -154,4 +341,167 @@ function parseJsonOption(rawValue: string | undefined, flagName: string): unknow
   } catch {
     throw new Error(`${flagName} 不是合法的 JSON`);
   }
+}
+
+function extractRecordId(
+  item: Record<string, unknown>,
+): string | undefined {
+  const recordId = item.record_id;
+  return typeof recordId === 'string' ? recordId : undefined;
+}
+
+function hasMatchingShareToken(
+  sharedUrl: unknown,
+  shareToken: string,
+): boolean {
+  if (typeof sharedUrl !== 'string') {
+    return false;
+  }
+
+  try {
+    return parseRecordUrl(sharedUrl).shareToken === shareToken;
+  } catch {
+    return false;
+  }
+}
+
+function extractAttachmentCandidates(
+  record: Record<string, unknown>,
+): AttachmentCandidate[] {
+  const fields = record.fields;
+
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+    return [];
+  }
+
+  const attachments: AttachmentCandidate[] = [];
+
+  for (const [fieldName, value] of Object.entries(fields)) {
+    collectAttachmentsFromValue(fieldName, value, attachments);
+  }
+
+  return attachments;
+}
+
+function collectAttachmentsFromValue(
+  fieldName: string,
+  value: unknown,
+  attachments: AttachmentCandidate[],
+): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectAttachmentsFromValue(fieldName, item, attachments);
+    }
+    return;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const fileToken = candidate.file_token;
+
+  if (typeof fileToken === 'string') {
+    attachments.push({
+      fieldName,
+      fileToken,
+      fileName:
+        typeof candidate.name === 'string' ? candidate.name : undefined,
+      contentType:
+        typeof candidate.type === 'string' ? candidate.type : undefined,
+    });
+    return;
+  }
+
+  for (const nestedValue of Object.values(candidate)) {
+    collectAttachmentsFromValue(fieldName, nestedValue, attachments);
+  }
+}
+
+async function downloadAttachments(
+  attachments: AttachmentCandidate[],
+  outputDir: string,
+  accessToken: string,
+): Promise<SavedAttachment[]> {
+  const filesDir = path.join(outputDir, 'files');
+  await mkdir(filesDir, { recursive: true });
+
+  const usedNames = new Set<string>();
+  const savedAttachments: SavedAttachment[] = [];
+
+  for (let index = 0; index < attachments.length; index += 1) {
+    const attachment = attachments[index];
+    const downloaded = await downloadMedia(attachment.fileToken, accessToken);
+    const baseName =
+      attachment.fileName ??
+      downloaded.fileName ??
+      `${attachment.fileToken}.bin`;
+    const safeName = uniqueFileName(
+      usedNames,
+      `${sanitizeFileName(attachment.fieldName)}-${index + 1}-${sanitizeFileName(baseName)}`,
+    );
+    const relativePath = path.join('files', safeName);
+    const absolutePath = path.join(outputDir, relativePath);
+
+    await writeFile(absolutePath, downloaded.content);
+
+    savedAttachments.push({
+      fieldName: attachment.fieldName,
+      fileToken: attachment.fileToken,
+      fileName: baseName,
+      relativePath,
+      contentType: attachment.contentType ?? downloaded.contentType,
+    });
+  }
+
+  return savedAttachments;
+}
+
+function sanitizeFileName(value: string): string {
+  const sanitized = value.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').trim();
+  return sanitized.length > 0 ? sanitized : 'file';
+}
+
+function uniqueFileName(usedNames: Set<string>, fileName: string): string {
+  const parsed = path.parse(fileName);
+  let candidate = fileName;
+  let counter = 1;
+
+  while (usedNames.has(candidate)) {
+    candidate = `${parsed.name}-${counter}${parsed.ext}`;
+    counter += 1;
+  }
+
+  usedNames.add(candidate);
+  return candidate;
+}
+
+function buildCompactRecordOutput(input: {
+  appToken: string;
+  tableId: string;
+  fromCache: boolean;
+  record: Record<string, unknown>;
+}): CompactRecordOutput {
+  const fields = input.record.fields;
+
+  return {
+    appToken: input.appToken,
+    tableId: input.tableId,
+    recordId:
+      typeof input.record.record_id === 'string' ? input.record.record_id : '',
+    sharedUrl:
+      typeof input.record.shared_url === 'string'
+        ? input.record.shared_url
+        : null,
+    fromCache: input.fromCache,
+    createdTime: input.record.created_time ?? null,
+    lastModifiedTime: input.record.last_modified_time ?? null,
+    createdBy: input.record.created_by ?? null,
+    lastModifiedBy: input.record.last_modified_by ?? null,
+    fields:
+      fields && typeof fields === 'object' && !Array.isArray(fields)
+        ? (fields as Record<string, unknown>)
+        : {},
+  };
 }

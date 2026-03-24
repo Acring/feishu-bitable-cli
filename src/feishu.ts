@@ -16,6 +16,29 @@ export interface SearchRecordsOptions extends RecordSearchBody {
   pageSize: number;
 }
 
+export interface BitableRecord {
+  record_id: string;
+  fields?: Record<string, unknown>;
+  shared_url?: string;
+  record_url?: string;
+  [key: string]: unknown;
+}
+
+export interface BatchGetRecordsOptions {
+  appToken: string;
+  tableId: string;
+  recordIds: string[];
+  userIdType?: string;
+  automaticFields?: boolean;
+  withSharedUrl?: boolean;
+}
+
+export interface DownloadMediaResult {
+  content: Uint8Array;
+  fileName?: string;
+  contentType?: string;
+}
+
 interface FeishuEnvelope<T> {
   code: number;
   msg: string;
@@ -44,6 +67,12 @@ interface SearchRecordsPage {
   total?: number;
   page_token?: string;
   has_more?: boolean;
+}
+
+interface BatchGetRecordsResponse {
+  records?: BitableRecord[];
+  forbidden_record_ids?: string[];
+  absent_record_ids?: string[];
 }
 
 export class FeishuApiError extends Error {
@@ -166,6 +195,97 @@ export async function searchAllRecords(
   };
 }
 
+export async function batchGetAllRecords(
+  options: BatchGetRecordsOptions,
+  accessToken: string,
+): Promise<{
+  records: BitableRecord[];
+  forbiddenRecordIds: string[];
+  absentRecordIds: string[];
+}> {
+  if (options.recordIds.length === 0) {
+    return {
+      records: [],
+      forbiddenRecordIds: [],
+      absentRecordIds: [],
+    };
+  }
+
+  const records: BitableRecord[] = [];
+  const forbiddenRecordIds = new Set<string>();
+  const absentRecordIds = new Set<string>();
+
+  for (let index = 0; index < options.recordIds.length; index += 100) {
+    const chunk = options.recordIds.slice(index, index + 100);
+    const data = await request<BatchGetRecordsResponse>(
+      `/bitable/v1/apps/${encodeURIComponent(options.appToken)}/tables/${encodeURIComponent(options.tableId)}/records/batch_get`,
+      {
+        method: 'POST',
+        accessToken,
+        query: {
+          user_id_type: options.userIdType ?? 'open_id',
+        },
+        body: {
+          record_ids: chunk,
+          user_id_type: options.userIdType ?? 'open_id',
+          with_shared_url: options.withSharedUrl ?? true,
+          ...(options.automaticFields !== undefined
+            ? { automatic_fields: options.automaticFields }
+            : {}),
+        },
+      },
+    );
+
+    records.push(...(data.records ?? []));
+
+    for (const recordId of data.forbidden_record_ids ?? []) {
+      forbiddenRecordIds.add(recordId);
+    }
+
+    for (const recordId of data.absent_record_ids ?? []) {
+      absentRecordIds.add(recordId);
+    }
+  }
+
+  return {
+    records,
+    forbiddenRecordIds: [...forbiddenRecordIds],
+    absentRecordIds: [...absentRecordIds],
+  };
+}
+
+export async function downloadMedia(
+  fileToken: string,
+  accessToken: string,
+): Promise<DownloadMediaResult> {
+  const response = await fetch(
+    buildUrl(`/drive/v1/medias/${encodeURIComponent(fileToken)}/download`),
+    {
+      method: 'GET',
+      headers: {
+        Accept: '*/*',
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const rawText = await response.text();
+    throw new FeishuApiError(
+      `下载附件失败，HTTP ${response.status}: ${rawText || response.statusText}`,
+    );
+  }
+
+  const contentDisposition = response.headers.get('content-disposition') ?? undefined;
+  const arrayBuffer = await response.arrayBuffer();
+
+  return {
+    content: new Uint8Array(arrayBuffer),
+    fileName: parseContentDispositionFileName(contentDisposition),
+    contentType: response.headers.get('content-type') ?? undefined,
+  };
+}
+
 async function request<T>(
   path: string,
   options: {
@@ -175,11 +295,7 @@ async function request<T>(
     body?: unknown;
   },
 ): Promise<T> {
-  const normalizedBaseUrl = OPEN_API_BASE_URL.endsWith('/')
-    ? OPEN_API_BASE_URL
-    : `${OPEN_API_BASE_URL}/`;
-  const normalizedPath = path.startsWith('/') ? path.slice(1) : path;
-  const url = new URL(normalizedPath, normalizedBaseUrl);
+  const url = buildUrl(path);
 
   for (const [key, value] of Object.entries(options.query ?? {})) {
     url.searchParams.set(key, value);
@@ -237,4 +353,39 @@ async function request<T>(
   }
 
   return payload as T;
+}
+
+function buildUrl(path: string): URL {
+  const normalizedBaseUrl = OPEN_API_BASE_URL.endsWith('/')
+    ? OPEN_API_BASE_URL
+    : `${OPEN_API_BASE_URL}/`;
+  const normalizedPath = path.startsWith('/') ? path.slice(1) : path;
+  return new URL(normalizedPath, normalizedBaseUrl);
+}
+
+function parseContentDispositionFileName(
+  contentDisposition?: string,
+): string | undefined {
+  if (!contentDisposition) {
+    return undefined;
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const quotedMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1];
+  }
+
+  const plainMatch = contentDisposition.match(/filename=([^;]+)/i);
+  return plainMatch?.[1]?.trim();
 }
