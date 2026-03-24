@@ -1,10 +1,10 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 
 import dotenv from 'dotenv';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { program } from 'commander';
-import pkg from '../package.json';
 import { findCachedRecordId, saveRecordLocators } from '../src/cache';
 import {
   batchGetAllRecords,
@@ -66,10 +66,12 @@ interface CompactRecordOutput {
 
 dotenv.config({ quiet: true });
 
+const CLI_VERSION = resolveCliVersion();
+
 program
   .name('feishu-bitable')
   .description('飞书多维表格 CLI 工具')
-  .version(pkg.version);
+  .version(CLI_VERSION);
 
 program.showHelpAfterError();
 
@@ -504,4 +506,27 @@ function buildCompactRecordOutput(input: {
         ? (fields as Record<string, unknown>)
         : {},
   };
+}
+
+function resolveCliVersion(): string {
+  const packageJsonCandidates = [
+    path.resolve(__dirname, '..', 'package.json'),
+    path.resolve(__dirname, '..', '..', 'package.json'),
+  ];
+
+  for (const packageJsonPath of packageJsonCandidates) {
+    if (!existsSync(packageJsonPath)) {
+      continue;
+    }
+
+    const packageJson = JSON.parse(
+      readFileSync(packageJsonPath, 'utf8'),
+    ) as { version?: unknown };
+
+    if (typeof packageJson.version === 'string') {
+      return packageJson.version;
+    }
+  }
+
+  return '0.0.0';
 }

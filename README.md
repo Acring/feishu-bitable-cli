@@ -1,0 +1,70 @@
+# feishu-bitable-cli
+
+一个面向飞书多维表格的命令行工具，支持通过表格 URL 查询记录、通过记录分享 URL 拉取单条详情，以及下载记录附件。
+
+## 安装
+
+```bash
+npm install -g @acring/feishu-bitable-cli
+```
+
+安装后可执行命令：
+
+```bash
+feishu-bitable --help
+```
+
+## 认证
+
+优先级如下：
+
+1. `--access-token`
+2. `FEISHU_ACCESS_TOKEN`
+3. `LARK_ACCESS_TOKEN`
+4. `FEISHU_USER_ACCESS_TOKEN`
+5. `LARK_USER_ACCESS_TOKEN`
+6. `FEISHU_APP_ID` + `FEISHU_APP_SECRET`
+7. `LARK_APP_ID` + `LARK_APP_SECRET`
+
+可参考 `.env.example`。
+
+## 用法
+
+查询整张表的记录：
+
+```bash
+feishu-bitable records "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx&view=vewxxxx"
+```
+
+导出单条记录并下载附件：
+
+```bash
+feishu-bitable record \
+  "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx" \
+  "https://xxx.feishu.cn/record/recuXXXXXX" \
+  --output ./record-1
+```
+
+开发阶段直接运行 TypeScript 入口：
+
+```bash
+npm run dev -- --help
+```
+
+## 发布到 npm
+
+发布前检查：
+
+```bash
+npm install
+npm run pack:check
+```
+
+首次发布 scoped 包建议确认 public access：
+
+```bash
+npm login
+npm publish
+```
+
+当前包已在 `package.json` 中设置 `"publishConfig": { "access": "public" }`。
