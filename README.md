@@ -30,12 +30,27 @@ feishu-bitable --help
 
 可参考 `.env.example`。
 
+`table-url` 也支持通过环境变量提供，优先级如下：
+
+1. 命令行参数中的 `table-url`
+2. 当前 shell / `.env*` 中的 `FEISHU_BITABLE_TABLE_URL`
+3. `LARK_BITABLE_TABLE_URL`
+4. `FEISHU_TABLE_URL`
+5. `LARK_TABLE_URL`
+
 ## 用法
 
 查询整张表的记录：
 
 ```bash
 feishu-bitable records "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx&view=vewxxxx"
+```
+
+如果已经在环境变量里配置了 `table-url`，可以直接省略：
+
+```bash
+export FEISHU_BITABLE_TABLE_URL="https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx&view=vewxxxx"
+feishu-bitable records
 ```
 
 导出单条记录并下载附件：
@@ -47,11 +62,27 @@ feishu-bitable record \
   --output ./record-1
 ```
 
+配置环境变量后，也可以只传 `record-url`：
+
+```bash
+feishu-bitable record \
+  "https://xxx.feishu.cn/record/recuXXXXXX" \
+  --output ./record-1
+```
+
 更新单条记录：
 
 ```bash
 feishu-bitable update-record \
   "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx" \
+  "recxxxxxxxx" \
+  --fields '{"文本":"新的内容","数字":100}'
+```
+
+配置环境变量后，也可以只传 `record-id`：
+
+```bash
+feishu-bitable update-record \
   "recxxxxxxxx" \
   --fields '{"文本":"新的内容","数字":100}'
 ```

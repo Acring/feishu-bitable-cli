@@ -77,6 +77,12 @@ interface CompactRecordOutput {
 loadEnvironmentFiles();
 
 const CLI_VERSION = resolveCliVersion();
+const TABLE_URL_ENV_KEYS = [
+  'FEISHU_BITABLE_TABLE_URL',
+  'LARK_BITABLE_TABLE_URL',
+  'FEISHU_TABLE_URL',
+  'LARK_TABLE_URL',
+] as const;
 
 program
   .name('feishu-bitable')
@@ -134,8 +140,8 @@ program
   .command('records')
   .description('通过多维表格 URL 查询记录并输出 JSON')
   .argument(
-    '<table-url>',
-    '多维表格 URL，例如 https://xxx.feishu.cn/wiki/...?...',
+    '[table-url]',
+    '多维表格 URL，例如 https://xxx.feishu.cn/wiki/...?...；如省略则从环境变量读取',
   )
   .option('--access-token <token>', '飞书 access token')
   .option('--page-size <number>', '每页数量，最大 500', '20')
@@ -146,8 +152,8 @@ program
   .option('--sort <json>', '排序条件 JSON')
   .option('--automatic-fields', '包含系统自动字段')
   .option('--output <file>', '将结果写入文件')
-  .action(async (tableUrl: string, options: RecordsCommandOptions) => {
-    const parsedUrl = parseTableUrl(tableUrl);
+  .action(async (tableUrl: string | undefined, options: RecordsCommandOptions) => {
+    const parsedUrl = parseTableUrl(resolveTableUrl(tableUrl));
     const pageSize = parsePageSize(options.pageSize);
     const accessToken = await resolveAccessToken(options.accessToken);
     const appToken =
@@ -197,11 +203,11 @@ program
   .command('record')
   .description('通过 table URL 和 record URL 查询单条记录详情并输出 JSON')
   .argument(
-    '<table-url>',
-    '多维表格 URL，例如 https://xxx.feishu.cn/wiki/...?...',
+    '[table-url]',
+    '多维表格 URL，例如 https://xxx.feishu.cn/wiki/...?...；也可省略并通过环境变量提供',
   )
   .argument(
-    '<record-url>',
+    '[record-url]',
     '记录分享 URL，例如 https://xxx.feishu.cn/record/xxxxxxxx',
   )
   .option('--access-token <token>', '飞书 access token')
@@ -210,12 +216,19 @@ program
   .option('--output <dir>', '创建输出目录，保存 record.json 和附件文件')
   .action(
     async (
-      tableUrl: string,
-      recordUrl: string,
+      tableUrl: string | undefined,
+      recordUrl: string | undefined,
       options: RecordCommandOptions,
     ) => {
-      const parsedTableUrl = parseTableUrl(tableUrl);
-      const parsedRecordUrl = parseRecordUrl(recordUrl);
+      const {
+        tableUrl: resolvedTableUrl,
+        recordUrl: resolvedRecordUrl,
+      }: {
+        tableUrl: string;
+        recordUrl: string;
+      } = resolveRecordCommandArguments(tableUrl, recordUrl);
+      const parsedTableUrl = parseTableUrl(resolvedTableUrl);
+      const parsedRecordUrl = parseRecordUrl(resolvedRecordUrl);
       const accessToken = await resolveAccessToken(options.accessToken);
       const appToken =
         parsedTableUrl.source.kind === 'base'
@@ -344,11 +357,11 @@ program
   .command('update-record')
   .description('通过 table URL 和 record_id 更新单条记录并输出更新后的 JSON')
   .argument(
-    '<table-url>',
-    '多维表格 URL，例如 https://xxx.feishu.cn/wiki/...?...',
+    '[table-url]',
+    '多维表格 URL，例如 https://xxx.feishu.cn/wiki/...?...；也可省略并通过环境变量提供',
   )
   .argument(
-    '<record-id>',
+    '[record-id]',
     '记录 ID，例如 recxxxxxxxx',
   )
   .option('--access-token <token>', '飞书 access token')
@@ -362,11 +375,18 @@ program
   .option('--output <file>', '将结果写入文件')
   .action(
     async (
-      tableUrl: string,
-      recordId: string,
+      tableUrl: string | undefined,
+      recordId: string | undefined,
       options: UpdateRecordCommandOptions,
     ) => {
-      const parsedTableUrl = parseTableUrl(tableUrl);
+      const {
+        tableUrl: resolvedTableUrl,
+        recordId: resolvedRecordId,
+      }: {
+        tableUrl: string;
+        recordId: string;
+      } = resolveUpdateRecordCommandArguments(tableUrl, recordId);
+      const parsedTableUrl = parseTableUrl(resolvedTableUrl);
       const accessToken = await resolveAccessToken(options.accessToken);
       const appToken =
         parsedTableUrl.source.kind === 'base'
@@ -381,7 +401,7 @@ program
         {
           appToken,
           tableId: parsedTableUrl.tableId,
-          recordId,
+          recordId: resolvedRecordId,
           fields,
           userIdType: options.userIdType,
           ignoreConsistencyCheck: options.ignoreConsistencyCheck,
@@ -426,6 +446,89 @@ function parsePageSize(rawValue: string): number {
   }
 
   return value;
+}
+
+function resolveTableUrl(rawTableUrl: string | undefined): string {
+  const candidate = rawTableUrl?.trim();
+
+  if (candidate) {
+    return candidate;
+  }
+
+  for (const envKey of TABLE_URL_ENV_KEYS) {
+    const envValue = process.env[envKey]?.trim();
+    if (envValue) {
+      return envValue;
+    }
+  }
+
+  throw new Error(
+    `缺少 table URL。请通过命令参数提供，或设置环境变量 ${TABLE_URL_ENV_KEYS.join(' / ')}。`,
+  );
+}
+
+function resolveRecordCommandArguments(
+  firstArg: string | undefined,
+  secondArg: string | undefined,
+): {
+  tableUrl: string;
+  recordUrl: string;
+} {
+  if (firstArg && secondArg) {
+    return {
+      tableUrl: resolveTableUrl(firstArg),
+      recordUrl: secondArg,
+    };
+  }
+
+  if (!firstArg) {
+    throw new Error(
+      '缺少 record URL。用法: feishu-bitable record <record-url>，或继续使用 feishu-bitable record <table-url> <record-url>。',
+    );
+  }
+
+  if (looksLikeTableUrl(firstArg)) {
+    throw new Error(
+      '缺少 record URL。用法: feishu-bitable record <table-url> <record-url>，或设置 table URL 环境变量后执行 feishu-bitable record <record-url>。',
+    );
+  }
+
+  return {
+    tableUrl: resolveTableUrl(undefined),
+    recordUrl: firstArg,
+  };
+}
+
+function resolveUpdateRecordCommandArguments(
+  firstArg: string | undefined,
+  secondArg: string | undefined,
+): {
+  tableUrl: string;
+  recordId: string;
+} {
+  if (firstArg && secondArg) {
+    return {
+      tableUrl: resolveTableUrl(firstArg),
+      recordId: secondArg,
+    };
+  }
+
+  if (!firstArg) {
+    throw new Error(
+      '缺少 record_id。用法: feishu-bitable update-record <record-id>，或继续使用 feishu-bitable update-record <table-url> <record-id>。',
+    );
+  }
+
+  if (looksLikeTableUrl(firstArg)) {
+    throw new Error(
+      '缺少 record_id。用法: feishu-bitable update-record <table-url> <record-id>，或设置 table URL 环境变量后执行 feishu-bitable update-record <record-id>。',
+    );
+  }
+
+  return {
+    tableUrl: resolveTableUrl(undefined),
+    recordId: firstArg,
+  };
 }
 
 function parseFieldNames(rawValue?: string): string[] | undefined {
@@ -497,6 +600,19 @@ function extractRecordId(
 ): string | undefined {
   const recordId = item.record_id;
   return typeof recordId === 'string' ? recordId : undefined;
+}
+
+function looksLikeTableUrl(rawValue: string | undefined): boolean {
+  if (!rawValue) {
+    return false;
+  }
+
+  try {
+    parseTableUrl(rawValue);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function hasMatchingShareToken(

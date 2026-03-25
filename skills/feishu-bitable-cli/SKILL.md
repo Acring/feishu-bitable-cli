@@ -25,9 +25,9 @@ feishu-bitable --help
 
 The real data commands are:
 
-- `records <table-url>`: query all records in a table and print JSON
-- `record <table-url> <record-url>`: resolve one shared record, print JSON, and optionally download attachments
-- `update-record <table-url> <record-id>`: update one record by `record_id` and print the updated JSON
+- `records [table-url]`: query all records in a table and print JSON
+- `record [table-url] [record-url]`: resolve one shared record, print JSON, and optionally download attachments
+- `update-record [table-url] [record-id]`: update one record by `record_id` and print the updated JSON
 
 `greet` and `list` are example commands only. Do not present them as actual Bitable workflows.
 
@@ -46,6 +46,14 @@ Token resolution order is:
 If only app credentials are provided, the CLI requests a tenant access token from `/auth/v3/tenant_access_token/internal`.
 
 If needed, the API base URL can be overridden with `FEISHU_OPEN_API_BASE_URL`.
+
+Table URL resolution order is:
+
+1. Command argument `table-url`
+2. `FEISHU_BITABLE_TABLE_URL`
+3. `LARK_BITABLE_TABLE_URL`
+4. `FEISHU_TABLE_URL`
+5. `LARK_TABLE_URL`
 
 ## URL rules
 
@@ -87,6 +95,12 @@ Example:
 feishu-bitable records "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx&view=vewxxxx"
 ```
 
+With environment variable:
+
+```bash
+feishu-bitable records
+```
+
 Output shape:
 
 - `appToken`
@@ -110,6 +124,14 @@ Example:
 ```bash
 feishu-bitable record \
   "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx" \
+  "https://xxx.feishu.cn/record/recuXXXXXX" \
+  --output ./record-1
+```
+
+With environment variable:
+
+```bash
+feishu-bitable record \
   "https://xxx.feishu.cn/record/recuXXXXXX" \
   --output ./record-1
 ```
@@ -167,6 +189,14 @@ Example:
 ```bash
 feishu-bitable update-record \
   "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx" \
+  "recxxxxxxxx" \
+  --fields '{"文本":"新的内容","数字":100}'
+```
+
+With environment variable:
+
+```bash
+feishu-bitable update-record \
   "recxxxxxxxx" \
   --fields '{"文本":"新的内容","数字":100}'
 ```
