@@ -74,7 +74,7 @@ interface CompactRecordOutput {
   attachments?: SavedAttachment[];
 }
 
-dotenv.config({ quiet: true });
+loadEnvironmentFiles();
 
 const CLI_VERSION = resolveCliVersion();
 
@@ -84,6 +84,32 @@ program
   .version(CLI_VERSION);
 
 program.showHelpAfterError();
+
+function loadEnvironmentFiles(): void {
+  const initialEnvKeys = new Set(Object.keys(process.env));
+  const nodeEnv = process.env.NODE_ENV?.trim();
+  const envFiles = [
+    '.env',
+    '.env.local',
+    ...(nodeEnv ? [`.env.${nodeEnv}`, `.env.${nodeEnv}.local`] : []),
+  ];
+
+  for (const envFile of envFiles) {
+    const envPath = path.resolve(process.cwd(), envFile);
+    if (!existsSync(envPath)) {
+      continue;
+    }
+
+    const parsed = dotenv.parse(readFileSync(envPath, 'utf8'));
+    for (const [key, value] of Object.entries(parsed)) {
+      if (initialEnvKeys.has(key)) {
+        continue;
+      }
+
+      process.env[key] = value;
+    }
+  }
+}
 
 program
   .command('greet')

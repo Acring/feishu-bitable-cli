@@ -19,12 +19,14 @@ feishu-bitable --help
 优先级如下：
 
 1. `--access-token`
-2. `FEISHU_ACCESS_TOKEN`
-3. `LARK_ACCESS_TOKEN`
-4. `FEISHU_USER_ACCESS_TOKEN`
-5. `LARK_USER_ACCESS_TOKEN`
-6. `FEISHU_APP_ID` + `FEISHU_APP_SECRET`
-7. `LARK_APP_ID` + `LARK_APP_SECRET`
+2. 当前 shell 已导出的环境变量
+3. 当前工作目录下按顺序加载的环境文件：`.env` -> `.env.local` -> `.env.<NODE_ENV>` -> `.env.<NODE_ENV>.local`
+4. `FEISHU_ACCESS_TOKEN`
+5. `LARK_ACCESS_TOKEN`
+6. `FEISHU_USER_ACCESS_TOKEN`
+7. `LARK_USER_ACCESS_TOKEN`
+8. `FEISHU_APP_ID` + `FEISHU_APP_SECRET`
+9. `LARK_APP_ID` + `LARK_APP_SECRET`
 
 可参考 `.env.example`。
 
