@@ -1,6 +1,6 @@
 ---
 name: feishu-bitable-cli
-description: Use this skill when you need to use, explain, or troubleshoot the `feishu-bitable` command line tool in this repository, including querying records from a Feishu/Lark Bitable table URL, resolving a single record from a record share URL, exporting JSON, downloading attachments, and configuring authentication.
+description: Use this skill when you need to use, explain, or troubleshoot the `feishu-bitable` command line tool in this repository, including querying records from a Feishu/Lark Bitable table URL, resolving a single record from a record share URL, updating a record by `record_id`, exporting JSON, downloading attachments, and configuring authentication.
 ---
 
 # Feishu Bitable CLI
@@ -27,6 +27,7 @@ The real data commands are:
 
 - `records <table-url>`: query all records in a table and print JSON
 - `record <table-url> <record-url>`: resolve one shared record, print JSON, and optionally download attachments
+- `update-record <table-url> <record-id>`: update one record by `record_id` and print the updated JSON
 
 `greet` and `list` are example commands only. Do not present them as actual Bitable workflows.
 
@@ -94,7 +95,7 @@ Output shape:
 - `total`
 - `items`
 
-## `record`
+### `record`
 
 Use this to resolve one shared record URL inside a known table.
 
@@ -142,12 +143,65 @@ Output shape:
 - `fields`
 - `attachments` when `--output` is used
 
+### `update-record`
+
+Use this to update one known record directly by `record_id`.
+
+Common options:
+
+- `--user-id-type <type>`: defaults to `open_id`
+- `--fields <json>`: inline JSON object for fields to update
+- `--fields-file <file>`: read update JSON from a file
+- `--ignore-consistency-check`: pass `ignore_consistency_check=true` to the API
+- `--output <file>`: write JSON to disk instead of stdout
+
+Input rules:
+
+- Exactly one of `--fields` or `--fields-file` must be provided
+- The parsed JSON must be an object
+- The file or inline JSON may be either the raw fields map, or an object shaped like `{ "fields": { ... } }`
+- The CLI does not resolve a record share URL for writes; it needs the concrete `record_id`
+
+Example:
+
+```bash
+feishu-bitable update-record \
+  "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx" \
+  "recxxxxxxxx" \
+  --fields '{"文本":"新的内容","数字":100}'
+```
+
+Example with file input:
+
+```bash
+feishu-bitable update-record \
+  "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx" \
+  "recxxxxxxxx" \
+  --fields-file ./fields.json \
+  --ignore-consistency-check
+```
+
+Output shape:
+
+- `appToken`
+- `tableId`
+- `recordId`
+- `sharedUrl`
+- `fromCache`
+- `createdTime`
+- `lastModifiedTime`
+- `createdBy`
+- `lastModifiedBy`
+- `fields`
+
 ## Troubleshooting
 
 - If the user passes invalid JSON to `--filter` or `--sort`, the CLI throws an error immediately.
+- If the user passes invalid JSON to `--fields` or `--fields-file`, the CLI throws an error immediately.
 - If `--page-size` is outside `1..500`, the CLI rejects it.
 - If the table URL does not contain `table=...`, parsing fails.
 - If the wiki node is not a Bitable node, app token resolution fails.
 - If a record cannot be matched by shared URL, the CLI exits with an error after search and batch lookup.
+- If both `--fields` and `--fields-file` are provided, or neither is provided, `update-record` exits with an error before calling Feishu.
 
 When helping a user, prefer showing the installed CLI form, `feishu-bitable ...`, not the repository development entrypoint.

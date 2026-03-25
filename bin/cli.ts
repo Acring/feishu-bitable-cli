@@ -12,6 +12,7 @@ import {
   resolveAccessToken,
   resolveAppTokenFromWiki,
   searchAllRecords,
+  updateRecord,
 } from '../src/feishu';
 import { parseRecordUrl } from '../src/record-url';
 import { parseTableUrl } from '../src/table-url';
@@ -32,6 +33,15 @@ interface RecordCommandOptions {
   accessToken?: string;
   userIdType: string;
   automaticFields?: boolean;
+  output?: string;
+}
+
+interface UpdateRecordCommandOptions {
+  accessToken?: string;
+  userIdType: string;
+  fields?: string;
+  fieldsFile?: string;
+  ignoreConsistencyCheck?: boolean;
   output?: string;
 }
 
@@ -304,6 +314,78 @@ program
     },
   );
 
+program
+  .command('update-record')
+  .description('通过 table URL 和 record_id 更新单条记录并输出更新后的 JSON')
+  .argument(
+    '<table-url>',
+    '多维表格 URL，例如 https://xxx.feishu.cn/wiki/...?...',
+  )
+  .argument(
+    '<record-id>',
+    '记录 ID，例如 recxxxxxxxx',
+  )
+  .option('--access-token <token>', '飞书 access token')
+  .option('--user-id-type <type>', '用户 ID 类型', 'open_id')
+  .option('--fields <json>', '更新字段 JSON，例如 {\"文本\":\"Hello\"}')
+  .option('--fields-file <file>', '从文件读取更新字段 JSON')
+  .option(
+    '--ignore-consistency-check',
+    '忽略一致性读写检查，提高性能但可能出现暂时不一致',
+  )
+  .option('--output <file>', '将结果写入文件')
+  .action(
+    async (
+      tableUrl: string,
+      recordId: string,
+      options: UpdateRecordCommandOptions,
+    ) => {
+      const parsedTableUrl = parseTableUrl(tableUrl);
+      const accessToken = await resolveAccessToken(options.accessToken);
+      const appToken =
+        parsedTableUrl.source.kind === 'base'
+          ? parsedTableUrl.source.appToken
+          : await resolveAppTokenFromWiki(
+              parsedTableUrl.source.wikiToken,
+              accessToken,
+            );
+      const fields = parseUpdateFields(options.fields, options.fieldsFile);
+
+      const updatedRecord = await updateRecord(
+        {
+          appToken,
+          tableId: parsedTableUrl.tableId,
+          recordId,
+          fields,
+          userIdType: options.userIdType,
+          ignoreConsistencyCheck: options.ignoreConsistencyCheck,
+        },
+        accessToken,
+      );
+
+      const output = JSON.stringify(
+        buildCompactRecordOutput({
+          appToken,
+          tableId: parsedTableUrl.tableId,
+          fromCache: false,
+          record: updatedRecord,
+        }),
+        null,
+        2,
+      );
+
+      if (options.output) {
+        const outputPath = path.resolve(options.output);
+        await mkdir(path.dirname(outputPath), { recursive: true });
+        await writeFile(outputPath, `${output}\n`, 'utf8');
+        console.error(`结果已写入 ${outputPath}`);
+        return;
+      }
+
+      console.log(output);
+    },
+  );
+
 program.parseAsync().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(message);
@@ -343,6 +425,45 @@ function parseJsonOption(rawValue: string | undefined, flagName: string): unknow
   } catch {
     throw new Error(`${flagName} 不是合法的 JSON`);
   }
+}
+
+function parseUpdateFields(
+  rawFields: string | undefined,
+  fieldsFile: string | undefined,
+): Record<string, unknown> {
+  if (rawFields && fieldsFile) {
+    throw new Error('--fields 和 --fields-file 不能同时使用');
+  }
+
+  if (!rawFields && !fieldsFile) {
+    throw new Error('必须通过 --fields 或 --fields-file 提供要更新的字段');
+  }
+
+  const source =
+    rawFields ??
+    readFileSync(path.resolve(fieldsFile as string), 'utf8');
+  const parsed = parseJsonOption(
+    source,
+    rawFields ? '--fields' : '--fields-file',
+  );
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('更新字段必须是 JSON 对象');
+  }
+
+  const candidate =
+    'fields' in parsed &&
+    parsed.fields &&
+    typeof parsed.fields === 'object' &&
+    !Array.isArray(parsed.fields)
+      ? parsed.fields
+      : parsed;
+
+  if (Array.isArray(candidate)) {
+    throw new Error('更新字段必须是 JSON 对象');
+  }
+
+  return candidate as Record<string, unknown>;
 }
 
 function extractRecordId(

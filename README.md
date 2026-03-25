@@ -1,6 +1,6 @@
 # feishu-bitable-cli
 
-一个面向飞书多维表格的命令行工具，支持通过表格 URL 查询记录、通过记录分享 URL 拉取单条详情，以及下载记录附件。
+一个面向飞书多维表格的命令行工具，支持通过表格 URL 查询记录、通过记录分享 URL 拉取单条详情、更新记录，以及下载记录附件。
 
 ## 安装
 
@@ -43,6 +43,25 @@ feishu-bitable record \
   "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx" \
   "https://xxx.feishu.cn/record/recuXXXXXX" \
   --output ./record-1
+```
+
+更新单条记录：
+
+```bash
+feishu-bitable update-record \
+  "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx" \
+  "recxxxxxxxx" \
+  --fields '{"文本":"新的内容","数字":100}'
+```
+
+如果字段 JSON 较复杂，也可以从文件读取。文件内容既可以是完整请求体中的 `fields` 对象，也可以是 `{ "fields": { ... } }`：
+
+```bash
+feishu-bitable update-record \
+  "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx" \
+  "recxxxxxxxx" \
+  --fields-file ./fields.json \
+  --ignore-consistency-check
 ```
 
 开发阶段直接运行 TypeScript 入口：

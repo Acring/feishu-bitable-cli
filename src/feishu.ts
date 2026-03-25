@@ -33,6 +33,15 @@ export interface BatchGetRecordsOptions {
   withSharedUrl?: boolean;
 }
 
+export interface UpdateRecordOptions {
+  appToken: string;
+  tableId: string;
+  recordId: string;
+  fields: Record<string, unknown>;
+  userIdType?: string;
+  ignoreConsistencyCheck?: boolean;
+}
+
 export interface DownloadMediaResult {
   content: Uint8Array;
   fileName?: string;
@@ -73,6 +82,10 @@ interface BatchGetRecordsResponse {
   records?: BitableRecord[];
   forbidden_record_ids?: string[];
   absent_record_ids?: string[];
+}
+
+interface UpdateRecordResponse {
+  record?: BitableRecord;
 }
 
 export class FeishuApiError extends Error {
@@ -254,6 +267,36 @@ export async function batchGetAllRecords(
   };
 }
 
+export async function updateRecord(
+  options: UpdateRecordOptions,
+  accessToken: string,
+): Promise<BitableRecord> {
+  const data = await request<UpdateRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(options.appToken)}/tables/${encodeURIComponent(options.tableId)}/records/${encodeURIComponent(options.recordId)}`,
+    {
+      method: 'PUT',
+      accessToken,
+      query: {
+        user_id_type: options.userIdType ?? 'open_id',
+        ...(options.ignoreConsistencyCheck !== undefined
+          ? {
+              ignore_consistency_check: String(options.ignoreConsistencyCheck),
+            }
+          : {}),
+      },
+      body: {
+        fields: options.fields,
+      },
+    },
+  );
+
+  if (!data.record) {
+    throw new FeishuApiError('更新记录失败，响应中缺少 record');
+  }
+
+  return data.record;
+}
+
 export async function downloadMedia(
   fileToken: string,
   accessToken: string,
@@ -289,7 +332,7 @@ export async function downloadMedia(
 async function request<T>(
   path: string,
   options: {
-    method: 'GET' | 'POST';
+    method: 'GET' | 'POST' | 'PUT';
     accessToken?: string;
     query?: Record<string, string>;
     body?: unknown;
