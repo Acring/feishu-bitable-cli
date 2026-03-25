@@ -16,11 +16,31 @@ export interface SearchRecordsOptions extends RecordSearchBody {
   pageSize: number;
 }
 
+export interface ListFieldsOptions {
+  appToken: string;
+  tableId: string;
+  viewId?: string;
+  pageSize: number;
+  textFieldAsArray?: boolean;
+}
+
 export interface BitableRecord {
   record_id: string;
   fields?: Record<string, unknown>;
   shared_url?: string;
   record_url?: string;
+  [key: string]: unknown;
+}
+
+export interface BitableField {
+  field_id?: string;
+  field_name?: string;
+  type?: number;
+  ui_type?: string;
+  property?: Record<string, unknown> | null;
+  is_primary?: boolean;
+  is_hidden?: boolean;
+  description?: unknown;
   [key: string]: unknown;
 }
 
@@ -73,6 +93,13 @@ interface WikiNodeData {
 
 interface SearchRecordsPage {
   items?: Array<Record<string, unknown>>;
+  total?: number;
+  page_token?: string;
+  has_more?: boolean;
+}
+
+interface ListFieldsPage {
+  items?: BitableField[];
   total?: number;
   page_token?: string;
   has_more?: boolean;
@@ -264,6 +291,45 @@ export async function batchGetAllRecords(
     records,
     forbiddenRecordIds: [...forbiddenRecordIds],
     absentRecordIds: [...absentRecordIds],
+  };
+}
+
+export async function listAllFields(
+  options: ListFieldsOptions,
+  accessToken: string,
+): Promise<{
+  items: BitableField[];
+  total: number;
+}> {
+  const items: BitableField[] = [];
+  let pageToken: string | undefined;
+  let total = 0;
+
+  do {
+    const page = await request<ListFieldsPage>(
+      `/bitable/v1/apps/${encodeURIComponent(options.appToken)}/tables/${encodeURIComponent(options.tableId)}/fields`,
+      {
+        method: 'GET',
+        accessToken,
+        query: {
+          page_size: String(options.pageSize),
+          ...(pageToken ? { page_token: pageToken } : {}),
+          ...(options.viewId ? { view_id: options.viewId } : {}),
+          ...(options.textFieldAsArray !== undefined
+            ? { text_field_as_array: String(options.textFieldAsArray) }
+            : {}),
+        },
+      },
+    );
+
+    items.push(...(page.items ?? []));
+    total = page.total ?? items.length;
+    pageToken = page.has_more ? page.page_token : undefined;
+  } while (pageToken);
+
+  return {
+    items,
+    total,
   };
 }
 

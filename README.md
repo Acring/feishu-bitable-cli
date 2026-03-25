@@ -46,11 +46,23 @@ feishu-bitable --help
 feishu-bitable records "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx&view=vewxxxx"
 ```
 
+查询整张表的字段：
+
+```bash
+feishu-bitable fields "https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx&view=vewxxxx"
+```
+
 如果已经在环境变量里配置了 `table-url`，可以直接省略：
 
 ```bash
 export FEISHU_BITABLE_TABLE_URL="https://xxx.feishu.cn/wiki/xxxx?table=tblxxxx&view=vewxxxx"
 feishu-bitable records
+```
+
+同样也可以直接查询字段：
+
+```bash
+feishu-bitable fields
 ```
 
 导出单条记录并下载附件：

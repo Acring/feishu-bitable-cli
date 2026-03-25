@@ -9,6 +9,7 @@ import { findCachedRecordId, saveRecordLocators } from '../src/cache';
 import {
   batchGetAllRecords,
   downloadMedia,
+  listAllFields,
   resolveAccessToken,
   resolveAppTokenFromWiki,
   searchAllRecords,
@@ -33,6 +34,14 @@ interface RecordCommandOptions {
   accessToken?: string;
   userIdType: string;
   automaticFields?: boolean;
+  output?: string;
+}
+
+interface FieldsCommandOptions {
+  accessToken?: string;
+  pageSize: string;
+  viewId?: string;
+  textFieldAsArray?: boolean;
   output?: string;
 }
 
@@ -172,6 +181,64 @@ program
         filter: parseJsonOption(options.filter, '--filter'),
         sort: parseJsonOption(options.sort, '--sort'),
         automatic_fields: options.automaticFields,
+      },
+      accessToken,
+    );
+
+    const output = JSON.stringify(
+      {
+        appToken,
+        tableId: parsedUrl.tableId,
+        viewId: options.viewId ?? parsedUrl.viewId ?? null,
+        total: data.total,
+        items: data.items,
+      },
+      null,
+      2,
+    );
+
+    if (options.output) {
+      const outputPath = path.resolve(options.output);
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, `${output}\n`, 'utf8');
+      console.error(`结果已写入 ${outputPath}`);
+      return;
+    }
+
+    console.log(output);
+  });
+
+program
+  .command('fields')
+  .description('通过多维表格 URL 查询所有字段并输出 JSON')
+  .argument(
+    '[table-url]',
+    '多维表格 URL，例如 https://xxx.feishu.cn/wiki/...?...；如省略则从环境变量读取',
+  )
+  .option('--access-token <token>', '飞书 access token')
+  .option('--page-size <number>', '每页数量，最大 500', '500')
+  .option('--view-id <viewId>', '覆盖 URL 中的 view_id')
+  .option(
+    '--text-field-as-array',
+    '将富文本描述字段按数组结构返回，而不是字符串',
+  )
+  .option('--output <file>', '将结果写入文件')
+  .action(async (tableUrl: string | undefined, options: FieldsCommandOptions) => {
+    const parsedUrl = parseTableUrl(resolveTableUrl(tableUrl));
+    const pageSize = parsePageSize(options.pageSize);
+    const accessToken = await resolveAccessToken(options.accessToken);
+    const appToken =
+      parsedUrl.source.kind === 'base'
+        ? parsedUrl.source.appToken
+        : await resolveAppTokenFromWiki(parsedUrl.source.wikiToken, accessToken);
+
+    const data = await listAllFields(
+      {
+        appToken,
+        tableId: parsedUrl.tableId,
+        pageSize,
+        viewId: options.viewId ?? parsedUrl.viewId,
+        textFieldAsArray: options.textFieldAsArray,
       },
       accessToken,
     );
